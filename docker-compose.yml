@@ -1,0 +1,26 @@
+services:
+  cloud-disk:
+    build: .
+    image: cloud-disk:latest
+    container_name: cloud-disk
+    ports:
+      - "8098:8098"
+    volumes:
+      - cloud-disk-data:/data
+      # Mount the portable drive on the Pi first, then point this at that folder.
+      - ${DISK_MOUNT:-/mnt/seagate}:/disk
+    environment:
+      DATA_DIR: /data
+      DISK_ROOT: /disk
+      PORT: "8098"
+      TZ: America/New_York
+      APP_TZ: America/New_York
+      DISK_LABEL: Drive
+      # ACCESS_CODE: "choose-a-code"
+    # The image runs as uid 10001. Mount the drive world-writable, or uncomment
+    # the next line and use the id that owns the mount (the Pi user is often 1000).
+    # user: "1000:1000"
+    restart: unless-stopped
+
+volumes:
+  cloud-disk-data:
