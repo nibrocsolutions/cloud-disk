@@ -112,7 +112,7 @@ If writes fail with a permission error, the mount owner and the container user d
 - Create folders, rename, move, and copy
 - Keep albums. An album is a list stored on the Pi. Adding or removing a photo there does not change the file
 
-A name that already exists is kept. The new file is saved beside it as `name (2)`. Nothing is replaced.
+A file already in that folder, with the same name and size, is not uploaded again. A different file that uses the same name is saved beside it as `name (2)`. Nothing is replaced.
 
 ## What you cannot do
 
@@ -123,6 +123,8 @@ The one folder you can remove is an empty folder directly under `Uploads`. Swipe
 ## Uploading from an iPhone
 
 A website cannot open the camera roll by itself. Tap **Photos & videos**, then Select, then the pictures. You can select a large group. If the picker stops you, save that group and add another to the same folder.
+
+The page shows how many photos you selected. After **Save to the drive**, that count climbs as each one is uploaded. When it finishes, tap **Close**. A photo already in the chosen folder, with the same name and size, stays there and is not uploaded again.
 
 Leave this page open until the save finishes. The phone is asked to stay awake.
 
@@ -162,7 +164,8 @@ pytest
 | POST | `/api/uploads/batches` | Start `Uploads/date_time` |
 | POST | `/api/uploads/folders` | Create a named folder under `Uploads` |
 | POST | `/api/uploads/folders/remove` | Remove that folder only when it is empty |
-| POST | `/api/uploads/batches/{id}/files` | Save one file into that folder |
+| POST | `/api/uploads/batches/{id}/duplicates` | Which of these names and sizes are already in that folder |
+| POST | `/api/uploads/batches/{id}/files` | Save one file into that folder. The same name and size is left as it is |
 | POST | `/api/folders` | Create a folder |
 | POST | `/api/rename` | Rename a file or folder |
 | POST | `/api/move` | Move, without replacing anything |

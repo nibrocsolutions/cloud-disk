@@ -1,6 +1,6 @@
 import json
 
-from fastapi import APIRouter, Depends, File, HTTPException, Request, UploadFile
+from fastapi import APIRouter, Depends, File, Form, HTTPException, Request, UploadFile
 from fastapi.responses import FileResponse, JSONResponse, Response
 from pydantic import BaseModel, Field
 from sqlalchemy.orm import Session
@@ -25,7 +25,14 @@ from app.files import INLINE_TYPES, media_type_for
 from app.organize import copy_entries, make_folder, move_entries, rename_entry
 from app.paths import resolve_inside
 from app.thumbs import ensure_jpeg
-from app.uploads import create_batch, create_named_folder, list_batches, remove_empty_upload_folder, save_upload
+from app.uploads import (
+    create_batch,
+    create_named_folder,
+    find_duplicates,
+    list_batches,
+    remove_empty_upload_folder,
+    save_upload,
+)
 
 public = APIRouter(prefix="/api")
 router = APIRouter(prefix="/api", dependencies=[Depends(require_access)])
@@ -43,6 +50,15 @@ class FolderIn(BaseModel):
 class UploadFolderIn(BaseModel):
     name: str = Field(default="", max_length=180)
     path: str = Field(default="", max_length=400)
+
+
+class DuplicateFileIn(BaseModel):
+    name: str = Field(default="photo", max_length=300)
+    size: int = Field(ge=0, le=2**62)
+
+
+class DuplicateCheckIn(BaseModel):
+    files: list[DuplicateFileIn] = Field(default_factory=list, max_length=2000)
 
 
 class RenameIn(BaseModel):
@@ -190,10 +206,20 @@ def remove_upload_folder(body: UploadFolderIn) -> dict:
     return remove_empty_upload_folder(body.path or body.name)
 
 
+@router.post("/uploads/batches/{batch_id}/duplicates")
+def upload_duplicates(batch_id: str, body: DuplicateCheckIn) -> dict:
+    pairs = [(item.name, item.size) for item in body.files]
+    return {"skip": find_duplicates(batch_id, pairs)}
+
+
 @router.post("/uploads/batches/{batch_id}/files")
-def upload_file(batch_id: str, file: UploadFile = File(...)) -> dict:
+def upload_file(
+    batch_id: str,
+    file: UploadFile = File(...),
+    size: int | None = Form(default=None),
+) -> dict:
     try:
-        return save_upload(batch_id, file.filename or "photo", file.file)
+        return save_upload(batch_id, file.filename or "photo", file.file, size)
     finally:
         file.file.close()
 

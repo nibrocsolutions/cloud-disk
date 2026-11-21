@@ -32,7 +32,7 @@ const state = {
     album: null,
     loading: false,
   },
-  upload: { batch: null, items: [], running: false, seq: 1, folders: [], draft: "" },
+  upload: { batch: null, items: [], running: false, report: false, seq: 1, folders: [], draft: "" },
   viewer: null,
   sheet: null,
 };
@@ -341,8 +341,7 @@ function uploadChoices() {
 function uploadScreen() {
   const upload = state.upload;
   const ready = state.status && state.status.ready && state.status.writable;
-  const count = upload.items.length;
-  const pending = upload.items.some((item) => item.status !== "saved");
+  const pending = upload.items.some((item) => item.status === "waiting" || item.status === "failed");
   const where = upload.batch ? upload.batch.folder : "a new folder named with the date and time";
   return `<header class="top"><div class="brand"><span class="led"></span> Cloud Disk</div></header>
     <h1>Upload</h1>
@@ -359,46 +358,69 @@ function uploadScreen() {
     <div class="stack">
       <button type="button" class="primary" data-act="pick" data-which="pick-photos" ${ready && !upload.running ? "" : "disabled"}>Photos & videos</button>
       <button type="button" class="secondary" data-act="pick" data-which="pick-any" ${ready && !upload.running ? "" : "disabled"}>Original files</button>
-      <button type="button" class="secondary" data-act="save" ${ready && count && pending && !upload.running ? "" : "disabled"}>Save to the drive</button>
+      <button type="button" class="secondary" data-act="save" ${ready && pending && !upload.running ? "" : "disabled"}>Save to the drive</button>
       ${upload.batch ? `<button type="button" class="quiet" data-act="open-batch">Open this folder</button>` : ""}
     </div>
     <input id="pick-photos" class="file-input" type="file" multiple accept="image/*,video/*,.heic,.heif,.jpg,.jpeg,.png,.gif,.webp,.mov,.mp4,.m4v">
     <input id="pick-any" class="file-input" type="file" multiple>
-    <p id="upload-live" class="muted" aria-live="polite">${esc(uploadSummary())}</p>
-    <div class="queue">${upload.items.map(queueItem).join("")}</div>
-    <p class="muted">On an iPhone, choose Photos & videos, then Select, then the pictures. Add another group to the same folder if the picker stops you. iOS sometimes converts HEIC to JPEG in that picker. Original files keeps the camera's files unchanged. Keep this page open until the save finishes.</p>`;
+    ${uploadStatus()}
+    <p class="muted">On an iPhone, choose Photos & videos, then Select, then the pictures. Add another group to the same folder if the picker stops you. iOS sometimes converts HEIC to JPEG in that picker. Original files keeps the camera's files unchanged. A file already in that folder with the same name and size is left there. Keep this page open until the save finishes.</p>`;
 }
 
-function uploadSummary() {
+function uploadCounts() {
   const items = state.upload.items;
-  if (!items.length) return "";
-  const saved = items.filter((item) => item.status === "saved").length;
-  const current = items.find((item) => item.status === "uploading");
-  if (current) return `Saving ${saved + 1} of ${items.length} · ${current.file.name}`;
-  const failed = items.filter((item) => item.status === "failed").length;
-  if (failed) return `${saved} saved. ${failed} still need another try.`;
-  if (saved === items.length) return `Saved ${saved} to the drive.`;
-  const total = items.reduce((sum, item) => sum + (item.file.size || 0), 0);
-  return `${items.length} ready · ${bytes(total)}`;
+  return {
+    total: items.length,
+    saved: items.filter((item) => item.status === "saved").length,
+    skipped: items.filter((item) => item.status === "skipped").length,
+    failed: items.filter((item) => item.status === "failed").length,
+  };
 }
 
-function queueItem(item) {
-  const pct = item.status === "saved" ? 100 : item.total ? Math.round((item.loaded / item.total) * 100) : 0;
-  const leave = item.status === "waiting" && !state.upload.running
-    ? `<button type="button" class="texty" data-act="queue-drop" data-id="${item.id}">Leave out</button>`
-    : "";
-  return `<article class="qitem ${esc(item.status)}" data-row="${item.id}">
-    <header><b>${esc(item.file.name)}</b>${leave}</header>
-    <p class="row-status muted">${esc(itemStatus(item))}</p>
-    <div class="bar"><span class="fill" style="width:${pct}%"></span></div>
-  </article>`;
+function uploadTitle() {
+  const counts = uploadCounts();
+  if (!counts.total) return "";
+  if (state.upload.running || state.upload.report) {
+    return counts.saved === 1 ? "1 uploaded" : `${counts.saved} uploaded`;
+  }
+  return counts.total === 1 ? "1 selected" : `${counts.total} selected`;
 }
 
-function itemStatus(item) {
-  if (item.status === "saved") return `Saved · ${bytes(item.file.size)}`;
-  if (item.status === "failed") return item.error || "Not saved";
-  if (item.status === "uploading") return `${bytes(item.loaded)} of ${bytes(item.total || item.file.size)}`;
-  return bytes(item.file.size);
+function uploadDetail() {
+  const counts = uploadCounts();
+  const parts = [];
+  if (counts.skipped) {
+    parts.push(counts.skipped === 1 ? "1 already in this folder" : `${counts.skipped} already in this folder`);
+  }
+  if (!state.upload.running && counts.failed) {
+    parts.push(counts.failed === 1 ? "1 did not finish" : `${counts.failed} did not finish`);
+  }
+  return parts.join(" · ");
+}
+
+function uploadStatus() {
+  const upload = state.upload;
+  if (!upload.items.length) return "";
+  const detail = uploadDetail();
+  const showClose = upload.report && !upload.running;
+  const showClear = !upload.running && !upload.report;
+  return `<section class="card upload-status" aria-live="polite">
+    <b id="upload-count">${esc(uploadTitle())}</b>
+    <p id="upload-detail" class="muted"${detail ? "" : " hidden"}>${esc(detail)}</p>
+    ${showClose ? `<button type="button" class="secondary" data-act="upload-close">Close</button>` : ""}
+    ${showClear ? `<button type="button" class="quiet" data-act="upload-clear">Clear</button>` : ""}
+  </section>`;
+}
+
+function paintUploadCount() {
+  const count = document.getElementById("upload-count");
+  const detail = document.getElementById("upload-detail");
+  if (count) count.textContent = uploadTitle();
+  if (detail) {
+    const text = uploadDetail();
+    detail.textContent = text;
+    detail.hidden = !text;
+  }
 }
 
 function organizeScreen() {
@@ -729,6 +751,10 @@ function applyHash() {
 }
 
 function addFiles(list) {
+  if (state.upload.report && !state.upload.running) {
+    state.upload.items = state.upload.items.filter((item) => item.status === "failed");
+    state.upload.report = false;
+  }
   const seen = new Set(state.upload.items.map((item) => `${item.file.name}:${item.file.size}:${item.file.lastModified}`));
   for (const file of list) {
     const key = `${file.name}:${file.size}:${file.lastModified}`;
@@ -753,7 +779,7 @@ function uploadOne(batchId, file, onProgress) {
     xhr.open("POST", `/api/uploads/batches/${encodeURIComponent(batchId)}/files`);
     xhr.withCredentials = true;
     xhr.upload.onprogress = (event) => {
-      if (event.lengthComputable) onProgress(event.loaded, event.total);
+      if (event.lengthComputable && onProgress) onProgress(event.loaded, event.total);
     };
     xhr.onload = () => {
       let data = {};
@@ -764,29 +790,44 @@ function uploadOne(batchId, file, onProgress) {
     xhr.onerror = () => reject(new Error("The upload stopped. Stay on this page and save again."));
     const body = new FormData();
     body.append("file", file, file.name);
+    body.append("size", String(file.size));
     xhr.send(body);
   });
 }
 
-function patchItem(item) {
-  const row = document.querySelector(`[data-row="${item.id}"]`);
-  const live = document.getElementById("upload-live");
-  if (live) live.textContent = uploadSummary();
-  if (!row) return;
-  row.className = `qitem ${item.status}`;
-  const fill = row.querySelector(".fill");
-  const label = row.querySelector(".row-status");
-  const pct = item.status === "saved" ? 100 : item.total ? Math.round((item.loaded / item.total) * 100) : 0;
-  if (fill) fill.style.width = `${pct}%`;
-  if (label) label.textContent = itemStatus(item);
+function skipRepeatedSelections() {
+  const claimed = new Set();
+  for (const item of state.upload.items) {
+    if (item.status === "saved" || item.status === "skipped") continue;
+    const key = `${item.file.name}\0${item.file.size}`;
+    if (claimed.has(key)) item.status = "skipped";
+    else claimed.add(key);
+  }
+}
+
+async function markDuplicates(batchId) {
+  const pending = state.upload.items.filter((item) => item.status === "waiting" || item.status === "failed");
+  for (let start = 0; start < pending.length; start += 400) {
+    const slice = pending.slice(start, start + 400);
+    const data = await api(`/api/uploads/batches/${encodeURIComponent(batchId)}/duplicates`, {
+      method: "POST",
+      body: { files: slice.map((item) => ({ name: item.file.name, size: item.file.size })) },
+    });
+    const skip = new Set(data.skip || []);
+    slice.forEach((item, index) => {
+      if (skip.has(index)) item.status = "skipped";
+    });
+  }
 }
 
 async function runUpload() {
   if (state.upload.running) return;
-  const pending = state.upload.items.some((item) => item.status !== "saved");
+  const pending = state.upload.items.some((item) => item.status === "waiting" || item.status === "failed");
   if (!pending) return;
   state.upload.running = true;
+  state.upload.report = false;
   state.error = "";
+  state.notice = "";
   render();
   let lock = null;
   try {
@@ -797,31 +838,30 @@ async function runUpload() {
       state.upload.batch = await api("/api/uploads/batches", { method: "POST", body: {} });
       render();
     }
+    skipRepeatedSelections();
+    try {
+      await markDuplicates(state.upload.batch.id);
+    } catch { /* the save itself still skips a file already in the folder */ }
+    paintUploadCount();
     for (const item of state.upload.items) {
-      if (item.status === "saved") continue;
+      if (item.status === "saved" || item.status === "skipped") continue;
       item.status = "uploading";
       item.loaded = 0;
       item.error = "";
-      patchItem(item);
       try {
-        item.saved = await uploadOne(state.upload.batch.id, item.file, (loaded, total) => {
-          item.loaded = loaded;
-          item.total = total || item.file.size;
-          patchItem(item);
-        });
-        item.status = "saved";
+        item.saved = await uploadOne(state.upload.batch.id, item.file);
+        item.status = item.saved && item.saved.duplicate ? "skipped" : "saved";
       } catch (err) {
         item.status = "failed";
         item.error = err.message;
       }
-      patchItem(item);
+      paintUploadCount();
     }
-    const failed = state.upload.items.some((item) => item.status === "failed");
-    state.notice = failed ? "Some files still need another try. The ones that finished are on the drive." : "Saved to the drive.";
   } catch (err) {
     state.error = err.message;
   } finally {
     state.upload.running = false;
+    state.upload.report = state.upload.items.length > 0;
     try { await lock?.release(); } catch { /* ignore */ }
     try {
       await loadUploadFolders();
@@ -900,9 +940,11 @@ async function onClick(event) {
     } else if (act === "pick") {
       document.getElementById(node.dataset.which)?.click();
       return;
-    } else if (act === "queue-drop") {
-      const id = Number(node.dataset.id);
-      state.upload.items = state.upload.items.filter((item) => item.id !== id);
+    } else if (act === "upload-clear" || act === "upload-close") {
+      if (state.upload.running) return;
+      state.upload.items = [];
+      state.upload.report = false;
+      state.notice = "";
     } else if (act === "save") {
       await runUpload();
       return;

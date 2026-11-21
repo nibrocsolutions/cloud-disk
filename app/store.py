@@ -47,7 +47,7 @@ def sweep_partials(root: Path) -> int:
     return removed
 
 
-def stream_to_final(final: Path, source) -> int:
+def stream_to_final(final: Path, source, abandon_if_size: int | None = None) -> int:
     part = Path(str(final) + PARTIAL_SUFFIX)
     try:
         with part.open("xb") as out:
@@ -60,6 +60,9 @@ def stream_to_final(final: Path, source) -> int:
                 total += len(chunk)
             out.flush()
             os.fsync(out.fileno())
+        if abandon_if_size is not None and total == abandon_if_size:
+            _discard_quietly(part)
+            return -1
         os.replace(part, final)
         return total
     except Exception:

@@ -165,19 +165,84 @@ def _batch_folder(batch_id: str) -> tuple[Path, str]:
     return folder, f"Uploads/{safe}"
 
 
-def save_upload(batch_id: str, filename: str, source) -> dict:
+def _file_size(path: Path) -> int | None:
+    if path.is_symlink() or not path.is_file():
+        return None
+    try:
+        return path.stat().st_size
+    except OSError:
+        return None
+
+
+def _duplicate(rel_folder: str, name: str, size: int) -> dict:
+    return {"duplicate": True, "name": name, "size": size, "path": f"{rel_folder}/{name}"}
+
+
+def find_duplicates(batch_id: str, files: list[tuple[str, int]]) -> list[int]:
+    """Indexes of files already in this folder, or repeated in this list.
+
+    A duplicate is the same safe name and the same size. A different size is
+    a different file and is not listed here.
+    """
+    with DISK:
+        folder, _rel = _batch_folder(batch_id)
+        on_disk: dict[str, int] = {}
+        try:
+            for entry in os.scandir(folder):
+                if entry.is_symlink() or not entry.is_file(follow_symlinks=False):
+                    continue
+                if not visible_name(entry.name):
+                    continue
+                try:
+                    on_disk[entry.name] = entry.stat(follow_symlinks=False).st_size
+                except OSError:
+                    continue
+        except OSError as exc:
+            raise DiskError("The folder could not be read. Check that the drive is connected.", 503) from exc
+        skip: list[int] = []
+        claimed: set[tuple[str, int]] = set()
+        for index, (name, size) in enumerate(files):
+            try:
+                safe = safe_name(name or "photo", replace=True)
+                declared = int(size)
+            except (DiskError, TypeError, ValueError):
+                continue
+            if declared < 0:
+                continue
+            key = (safe, declared)
+            if on_disk.get(safe) == declared or key in claimed:
+                skip.append(index)
+            else:
+                claimed.add(key)
+        return skip
+
+
+def save_upload(batch_id: str, filename: str, source, size: int | None = None) -> dict:
     safe = safe_name(filename or "photo", replace=True)
+    declared = size if isinstance(size, int) and size >= 0 else None
     with DISK:
         folder, rel_folder = _batch_folder(batch_id)
+        current = folder / safe
+        existing = _file_size(current)
+        if existing is not None and declared is not None and declared == existing:
+            logger.info("Skipped duplicate %s/%s (%s bytes)", rel_folder, safe, existing)
+            return _duplicate(rel_folder, safe, existing)
         final = unique_child(folder, safe)
         try:
-            stream_to_final(final, source)
+            written = stream_to_final(
+                final,
+                source,
+                abandon_if_size=existing if existing is not None else None,
+            )
         except DiskError:
             raise
         except PermissionError as exc:
             raise DiskError("The drive refused the photo. Mount it so the container can write.", 403) from exc
         except OSError as exc:
             raise DiskError("The photo could not be written. Check that the drive is connected.", 503) from exc
+        if written < 0:
+            logger.info("Skipped duplicate %s/%s (%s bytes)", rel_folder, safe, existing)
+            return _duplicate(rel_folder, safe, existing or 0)
         saved = describe(final, f"{rel_folder}/{final.name}")
     logger.info("Saved %s (%s bytes)", saved["path"], saved["size"])
     return saved

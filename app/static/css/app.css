@@ -276,18 +276,9 @@ input, select { max-width: 100%; }
 .inline > * { flex: 1; }
 .primary:disabled, .secondary:disabled, .quiet:disabled { opacity: 0.45; }
 
-.queue { display: grid; gap: 8px; margin-top: 12px; }
-.qitem {
-  background: var(--card);
-  border-radius: 14px;
-  padding: 10px 12px;
-}
-.qitem header { display: flex; justify-content: space-between; gap: 8px; align-items: baseline; }
-.qitem b { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.bar { height: 6px; border-radius: 99px; background: #2c323c; margin-top: 8px; overflow: hidden; }
-.fill { display: block; height: 100%; width: 0; background: var(--accent); }
-.qitem.saved .fill { background: #6fbf98; }
-.qitem.failed .fill { background: #e07a6a; }
+.upload-status { display: grid; gap: 8px; margin-top: 12px; }
+.upload-status b { font-size: 28px; letter-spacing: -0.03em; }
+.upload-status .muted { margin: 0; }
 .file-input {
   position: absolute;
   width: 1px;
