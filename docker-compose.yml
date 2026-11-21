@@ -17,8 +17,9 @@ services:
       APP_TZ: America/New_York
       DISK_LABEL: Drive
       # ACCESS_CODE: "choose-a-code"
-    # The image runs as uid 10001. Mount the drive world-writable, or uncomment
-    # the next line and use the id that owns the mount (the Pi user is often 1000).
+    # The image runs as uid 10001. HFS+ mounts should use uid=10001,gid=10001.
+    # exFAT and NTFS can use umask=000. Uncomment the next line only when the
+    # mount is owned by the Pi user (often 1000) and /data is writable by that user.
     # user: "1000:1000"
     restart: unless-stopped
 

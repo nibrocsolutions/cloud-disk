@@ -16,29 +16,43 @@ Plug the drive into a blue USB 3 port. If it clicks or drops off the bus, use a 
 
 ```bash
 sudo apt-get update
-sudo apt-get install -y exfatprogs ntfs-3g
+sudo apt-get install -y hfsprogs exfatprogs ntfs-3g
 lsblk -f
 ```
 
-Note the UUID and the filesystem (`exfat` or `ntfs`). Then:
+Note the name (`sda1`), the filesystem (`hfsplus`, `exfat`, or `ntfs`), and the UUID. A Seagate drive that was used on a Mac is usually `hfsplus`. Then:
 
 ```bash
 sudo mkdir -p /mnt/seagate
 ```
 
-For exFAT, add this as one new line at the bottom of the file `/etc/fstab` (use the UUID from `lsblk -f`). Open that file with `sudo nano /etc/fstab`. Do not paste the line at the shell prompt. The shell treats it as a program to run, and `/mnt/seagate` is a folder, so bash stops with `Is a directory`.
+Mount it once so you can see the photos. For HFS+, use the partition (`sda1`), not the whole disk:
+
+```bash
+sudo mount -t hfsplus -o force,rw,uid=10001,gid=10001 /dev/sda1 /mnt/seagate
+```
+
+`force` is what lets Linux write to a journaled HFS+ volume. `uid=10001,gid=10001` matches the user inside the container. Keep the drive on the Pi while Cloud Disk is writing to it, and unmount it before plugging it into a Mac.
+
+The line that makes the mount come back after a reboot goes in the file `/etc/fstab`, not at the shell prompt. Open that file with `sudo nano /etc/fstab` and add one line at the bottom. Pasting the line into the terminal makes bash try to run `/mnt/seagate` and stop with `Is a directory`.
+
+```
+UUID=65a4792f-0641-3134-86a6-b537747097d2  /mnt/seagate  hfsplus  force,rw,uid=10001,gid=10001,nofail,x-systemd.device-timeout=10  0  0
+```
+
+Use the UUID from your own `lsblk -f` if it is different. For exFAT, the line is:
 
 ```
 UUID=XXXX-XXXX  /mnt/seagate  exfat  defaults,uid=1000,gid=1000,umask=000,nofail,x-systemd.device-timeout=10  0  0
 ```
 
-For NTFS, the line in that same file is:
+For NTFS:
 
 ```
 UUID=XXXX  /mnt/seagate  ntfs-3g  defaults,uid=1000,gid=1000,umask=000,nofail,x-systemd.device-timeout=10  0  0
 ```
 
-`nofail` lets the Pi boot when the drive is unplugged. `umask=000` lets the container write. Mount it and check that the photos are there:
+`nofail` lets the Pi boot when the drive is unplugged. On exFAT and NTFS, `umask=000` lets the container write. Mount it and check that the photos are there:
 
 ```bash
 sudo mount -a
@@ -71,7 +85,7 @@ docker compose down
 
 `docker compose down` keeps the `cloud-disk-data` volume (the album list and preview cache). It does not change the portable drive. Add `-v` only when you mean to erase the album list. That still does not delete files on the drive.
 
-If writes fail with a permission error, the mount owner and the container user do not match. Either keep `umask=000`, or set `user: "1000:1000"` in `docker-compose.yml` to the id that owns the mount.
+If writes fail with a permission error, the mount owner and the container user do not match. The container runs as uid 10001. HFS+ needs `uid=10001,gid=10001` on the mount. exFAT and NTFS can use `umask=000` instead.
 
 ## What you can do
 
