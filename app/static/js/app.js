@@ -54,6 +54,32 @@ function esc(value) {
   }[ch]));
 }
 
+function parentPath(path) {
+  const text = String(path || "");
+  const cut = text.lastIndexOf("/");
+  return cut < 0 ? "" : text.slice(0, cut);
+}
+
+function folderIsGone(error) {
+  const message = error && error.message ? error.message : "";
+  return message.includes("not on the drive") || message.includes("not a folder");
+}
+
+function releaseRemoved(path) {
+  const current = (value) => value === path || String(value || "").startsWith(`${path}/`);
+  if (current(state.library.path)) {
+    state.library.path = parentPath(path);
+    state.library.entries = [];
+    sessionStorage.setItem("cd-lib", state.library.path);
+  }
+  if (current(state.organize.path)) {
+    state.organize.path = parentPath(path);
+    state.organize.entries = [];
+    state.organize.selected = [];
+    sessionStorage.setItem("cd-org", state.organize.path);
+  }
+}
+
 function bytes(size) {
   if (size == null) return "";
   const units = ["B", "KB", "MB", "GB", "TB"];
@@ -605,6 +631,15 @@ async function loadLibrary({ append = false } = {}) {
     sessionStorage.setItem("cd-lib", lib.path);
   } catch (err) {
     if (token !== libraryToken) return;
+    if (!searching && lib.path && folderIsGone(err)) {
+      lib.path = parentPath(lib.path);
+      lib.entries = [];
+      sessionStorage.setItem("cd-lib", lib.path);
+      state.error = "";
+      state.notice = "That folder is no longer on the drive.";
+      lib.loading = false;
+      return loadLibrary();
+    }
     state.error = err.message;
   } finally {
     if (token === libraryToken) {
@@ -618,6 +653,7 @@ async function loadOrganize({ append = false } = {}) {
   const org = state.organize;
   org.loading = !append;
   if (!append) render();
+  let retry = false;
   try {
     if (org.mode === "albums") {
       org.albums = (await api("/api/albums")).albums;
@@ -640,12 +676,25 @@ async function loadOrganize({ append = false } = {}) {
       sessionStorage.setItem("cd-org", org.path);
     }
   } catch (err) {
-    state.error = err.message;
+    if (org.mode === "drive" && org.path && folderIsGone(err)) {
+      org.path = parentPath(org.path);
+      org.entries = [];
+      org.selected = [];
+      sessionStorage.setItem("cd-org", org.path);
+      state.error = "";
+      state.notice = "That folder is no longer on the drive.";
+      retry = true;
+    } else {
+      state.error = err.message;
+    }
   } finally {
     org.loading = false;
-    if (append) softRender();
-    else render();
+    if (!retry) {
+      if (append) softRender();
+      else render();
+    }
   }
+  if (retry) return loadOrganize();
 }
 
 function setTab(tab) {
@@ -1047,6 +1096,7 @@ async function removeEmptyFolder(path) {
     if (state.upload.batch && (state.upload.batch.folder === path || state.upload.batch.path === path)) {
       state.upload.batch = null;
     }
+    releaseRemoved(path);
     state.notice = "Removed the empty folder.";
     state.error = "";
     if (state.tab === "upload") await loadUploadFolders();
