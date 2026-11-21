@@ -26,13 +26,13 @@ Note the UUID and the filesystem (`exfat` or `ntfs`). Then:
 sudo mkdir -p /mnt/seagate
 ```
 
-For exFAT, add this to `/etc/fstab` (use the UUID from `lsblk -f`):
+For exFAT, add this as one new line at the bottom of the file `/etc/fstab` (use the UUID from `lsblk -f`). Open that file with `sudo nano /etc/fstab`. Do not paste the line at the shell prompt. The shell treats it as a program to run, and `/mnt/seagate` is a folder, so bash stops with `Is a directory`.
 
 ```
 UUID=XXXX-XXXX  /mnt/seagate  exfat  defaults,uid=1000,gid=1000,umask=000,nofail,x-systemd.device-timeout=10  0  0
 ```
 
-For NTFS:
+For NTFS, the line in that same file is:
 
 ```
 UUID=XXXX  /mnt/seagate  ntfs-3g  defaults,uid=1000,gid=1000,umask=000,nofail,x-systemd.device-timeout=10  0  0
