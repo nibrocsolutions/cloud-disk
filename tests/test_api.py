@@ -56,6 +56,70 @@ def test_upload_uses_a_dated_folder_and_never_overwrites(client, disk):
     assert names == {"IMG_0001.JPG", "IMG_0001 (2).JPG"}
 
 
+def test_same_name_and_size_is_not_uploaded_again(client, disk):
+    batch = _batch(client)
+    payload = b"same-photo-bytes"
+    first = _upload(client, batch["id"], "IMG_0001.JPG", payload)
+    assert first.status_code == 200
+    assert first.json().get("duplicate") is not True
+    folder = disk / "Uploads" / batch["id"]
+
+    again = client.post(
+        f"/api/uploads/batches/{batch['id']}/files",
+        files={"file": ("IMG_0001.JPG", payload, "image/jpeg")},
+        data={"size": str(len(payload))},
+    )
+    assert again.status_code == 200
+    assert again.json()["duplicate"] is True
+    assert again.json()["name"] == "IMG_0001.JPG"
+    assert {path.name for path in folder.iterdir()} == {"IMG_0001.JPG"}
+    assert (folder / "IMG_0001.JPG").read_bytes() == payload
+
+    silent = _upload(client, batch["id"], "IMG_0001.JPG", payload)
+    assert silent.status_code == 200
+    assert silent.json()["duplicate"] is True
+    assert {path.name for path in folder.iterdir()} == {"IMG_0001.JPG"}
+
+    twin = b"x" * len(payload)
+    same_size = client.post(
+        f"/api/uploads/batches/{batch['id']}/files",
+        files={"file": ("IMG_0001.JPG", twin, "image/jpeg")},
+        data={"size": str(len(twin))},
+    )
+    assert same_size.status_code == 200
+    assert same_size.json()["duplicate"] is True
+    assert (folder / "IMG_0001.JPG").read_bytes() == payload
+    assert not (folder / "IMG_0001 (2).JPG").exists()
+
+    checked = client.post(
+        f"/api/uploads/batches/{batch['id']}/duplicates",
+        json={
+            "files": [
+                {"name": "IMG_0001.JPG", "size": len(payload)},
+                {"name": "IMG_0001.JPG", "size": len(payload)},
+                {"name": "other.jpg", "size": 4},
+                {"name": "IMG_0001.JPG", "size": len(payload) + 1},
+            ]
+        },
+    )
+    assert checked.status_code == 200
+    assert checked.json()["skip"] == [0, 1]
+
+    fresh = _batch(client)
+    within = client.post(
+        f"/api/uploads/batches/{fresh['id']}/duplicates",
+        json={
+            "files": [
+                {"name": "A.JPG", "size": 10},
+                {"name": "A.JPG", "size": 10},
+                {"name": "A.JPG", "size": 11},
+            ]
+        },
+    )
+    assert within.status_code == 200
+    assert within.json()["skip"] == [1]
+
+
 def test_upload_name_cannot_escape_the_folder(client, disk):
     batch = _batch(client)
     response = _upload(client, batch["id"], "../outside.jpg", b"inside")
