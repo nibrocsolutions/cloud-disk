@@ -1,0 +1,23 @@
+{
+  "name": "Cloud Disk",
+  "short_name": "Cloud Disk",
+  "description": "Browse and save photos on the portable drive.",
+  "start_url": "/",
+  "display": "standalone",
+  "background_color": "#101114",
+  "theme_color": "#101114",
+  "icons": [
+    {
+      "src": "/static/favicon.svg",
+      "sizes": "any",
+      "type": "image/svg+xml",
+      "purpose": "any"
+    },
+    {
+      "src": "/static/apple-touch-icon.png",
+      "sizes": "180x180",
+      "type": "image/png",
+      "purpose": "any"
+    }
+  ]
+}
