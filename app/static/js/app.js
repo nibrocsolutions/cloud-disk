@@ -220,7 +220,7 @@ function libraryBody() {
   } else {
     html += crumbs(lib.crumbs, "open");
     if (lib.path === "Uploads") {
-      html += `<p class="muted">Swipe an empty folder to the right to remove it. A folder with anything in it stays.</p>`;
+      html += `<p class="muted">Swipe an empty folder to the left, then tap Remove. A folder with anything in it stays.</p>`;
     }
     if (!lib.path && lib.recent && lib.recent.length) {
       html += `<h2>Recent uploads</h2><div class="recent">${lib.recent.map((item) => `<button type="button" data-act="open" data-path="${esc(item.path)}"><b>${esc(item.label || item.name)}</b><span>Upload folder</span></button>`).join("")}</div>`;
@@ -260,13 +260,13 @@ function canRemoveEmpty(entry, mode) {
 }
 
 function swipeWrap(entry, inner) {
-  return `<div class="swipe" data-path="${esc(entry.path)}"><button type="button" class="swipe-delete" data-act="remove-empty" data-path="${esc(entry.path)}">Delete</button><div class="swipe-face">${inner}</div></div>`;
+  return `<div class="swipe" data-path="${esc(entry.path)}"><button type="button" class="swipe-delete" data-act="ask-remove" data-path="${esc(entry.path)}" data-name="${esc(entry.name)}">Remove</button><div class="swipe-face">${inner}</div></div>`;
 }
 
 function folderRow(entry, mode) {
   const selected = state.organize.selected.includes(entry.path);
   const removable = canRemoveEmpty(entry, mode);
-  const detail = mode === "search" ? entry.path : removable ? "Empty · swipe right to remove" : "Folder";
+  const detail = mode === "search" ? entry.path : removable ? "Empty · swipe left" : "Folder";
   const row = mode === "organize"
     ? `<div class="row${selected ? " on" : ""}">
       <button type="button" class="check${selected ? " on" : ""}" data-act="select" data-path="${esc(entry.path)}" aria-label="Select ${esc(entry.name)}"></button>
@@ -305,7 +305,7 @@ function uploadChoices() {
   const rows = [`<button type="button" class="choice${!chosen ? " on" : ""}" data-act="use-dated"><b>New folder</b><small>Named with the date and time when you save</small></button>`];
   for (const folder of upload.folders || []) {
     const on = chosen && chosen.id === folder.id ? " on" : "";
-    const detail = folder.empty ? "Empty · swipe right to remove" : "Folder under Uploads";
+    const detail = folder.empty ? "Empty · swipe left" : "Folder under Uploads";
     const inner = `<button type="button" class="choice${on}" data-act="use-folder" data-id="${esc(folder.id)}"><b>${esc(folder.label || folder.name)}</b><small>${esc(detail)}</small></button>`;
     rows.push(folder.empty ? swipeWrap(folder, inner) : inner);
   }
@@ -328,7 +328,7 @@ function uploadScreen() {
       <input id="upload-folder-name" value="${esc(upload.draft || "")}" placeholder="New folder name" maxlength="80" autocomplete="off" ${upload.running ? "disabled" : ""}>
       <button type="button" class="secondary" data-act="create-upload-folder" ${ready && !upload.running ? "" : "disabled"}>Create</button>
     </div>
-    <p class="muted">Creates the folder under Uploads. Swipe an empty one to the right to remove it.</p>
+    <p class="muted">Creates the folder under Uploads. Swipe an empty one to the left, then tap Remove.</p>
     <p class="muted">Saving into ${esc(where)}.</p>
     <div class="stack">
       <button type="button" class="primary" data-act="pick" data-which="pick-photos" ${ready && !upload.running ? "" : "disabled"}>Photos & videos</button>
@@ -396,7 +396,7 @@ function organizeDrive() {
   let html = `<div class="inline"><button type="button" class="secondary" data-act="new-folder">New folder</button>
     <button type="button" class="quiet" data-act="select-files">Select files</button></div>`;
   html += crumbs(org.crumbs, "org-open");
-  if (org.path === "Uploads") html += `<p class="muted">Swipe an empty folder to the right to remove it. A folder with anything in it stays.</p>`;
+  if (org.path === "Uploads") html += `<p class="muted">Swipe an empty folder to the left, then tap Remove. A folder with anything in it stays.</p>`;
   if (org.loading && !org.entries.length) return `${html}<p class="muted">Looking through the drive…</p>`;
   if (!org.entries.length) html += `<div class="empty"><h2>This folder is empty</h2><p>New folders start here. Uploads arrive under Uploads.</p></div>`;
   else html += entriesHtml(org.entries, "organize");
@@ -874,9 +874,16 @@ async function onClick(event) {
       state.notice = `Created ${made.folder}.`;
       await loadUploadFolders();
       return;
-    } else if (act === "remove-empty") {
-      await removeEmptyFolder(node.dataset.path);
-      return;
+    } else if (act === "ask-remove") {
+      const name = node.dataset.name || "this folder";
+      state.sheet = {
+        type: "confirm",
+        title: `Remove ${name}?`,
+        body: "This empty folder goes away. Photos and other files stay on the drive.",
+        yes: "Remove",
+        confirm: "remove-empty",
+        path: node.dataset.path,
+      };
     } else if (act === "open-batch") {
       if (!state.upload.batch) return;
       state.tab = "library";
@@ -1000,7 +1007,12 @@ async function onClick(event) {
       };
     } else if (act === "confirm-yes") {
       const kind = state.sheet.confirm;
+      const path = state.sheet.path;
       state.sheet = null;
+      if (kind === "remove-empty") {
+        await removeEmptyFolder(path);
+        return;
+      }
       if (kind === "remove-album") {
         await api(`/api/albums/${state.organize.album.id}/remove`, { method: "POST", body: {} });
         state.organize.mode = "albums";
@@ -1135,6 +1147,9 @@ appEl.addEventListener("pointerdown", (event) => {
   if (event.button !== 0) return;
   const row = event.target.closest(".swipe");
   if (!row) return;
+  const bounds = row.getBoundingClientRect();
+  const fromLeft = event.clientX <= bounds.left + bounds.width * 0.45;
+  if (!fromLeft && row.dataset.open !== "1") return;
   swipeGesture.id = event.pointerId;
   swipeGesture.x = event.clientX;
   swipeGesture.y = event.clientY;
@@ -1148,14 +1163,14 @@ appEl.addEventListener("pointermove", (event) => {
   const dy = event.clientY - swipeGesture.y;
   if (!swipeGesture.active) {
     if (Math.abs(dx) < 12 && Math.abs(dy) < 12) return;
-    if (Math.abs(dy) > Math.abs(dx)) {
+    if (dx > -12 || Math.abs(dy) > Math.abs(dx)) {
       swipeGesture.row = null;
       return;
     }
     swipeGesture.active = true;
     swipeGesture.row.classList.add("dragging");
   }
-  const next = Math.max(0, Math.min(dx, 128));
+  const next = Math.max(-128, Math.min(0, dx));
   swipeGesture.dx = next;
   const face = swipeGesture.row.querySelector(".swipe-face");
   if (face) face.style.transform = `translateX(${next}px)`;
@@ -1180,14 +1195,9 @@ appEl.addEventListener("pointerup", (event) => {
   swallowClick = true;
   row.classList.remove("dragging");
   const face = row.querySelector(".swipe-face");
-  if (dx >= 100) {
-    closeSwipe(row);
-    removeEmptyFolder(row.dataset.path);
-    return;
-  }
-  if (dx >= 48 && face) {
+  if (dx <= -32 && face) {
     row.dataset.open = "1";
-    face.style.transform = "translateX(104px)";
+    face.style.transform = "translateX(-112px)";
     return;
   }
   closeSwipe(row);

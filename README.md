@@ -118,7 +118,7 @@ A name that already exists is kept. The new file is saved beside it as `name (2)
 
 A finished file is never removed. There is no trash. An upload that stops halfway is discarded so a half-written file is not left behind. That cleanup only applies to the app's own unfinished files, the ones whose names end in `.cloud-disk-part`.
 
-The one folder you can remove is an empty folder directly under `Uploads`. Swipe it to the right. If it still has a file, a hidden file, or a folder inside it, it stays. Folders anywhere else stay too.
+The one folder you can remove is an empty folder directly under `Uploads`. Swipe it to the left, tap Remove, and confirm. If it still has a file, a hidden file, or a folder inside it, it stays. Folders anywhere else stay too.
 
 ## Uploading from an iPhone
 
