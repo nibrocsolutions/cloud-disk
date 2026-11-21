@@ -19,14 +19,18 @@ def test_source_never_removes_finished_files():
     offenders = []
     for path in Path("app").rglob("*.py"):
         text = path.read_text(encoding="utf-8")
-        if any(token in text for token in ("rmtree", "os.remove", ".rmdir(", "shutil.move")):
+        if any(token in text for token in ("rmtree", "os.remove", "shutil.move")):
             offenders.append(path.name)
         if ".unlink(" in text and path.name != "store.py":
             offenders.append(f"{path.name}:unlink")
+        if "rmdir(" in text and path.name != "uploads.py":
+            offenders.append(f"{path.name}:rmdir")
     assert offenders == []
     store = (Path("app") / "store.py").read_text(encoding="utf-8")
     assert store.count(".unlink(") == 1
     assert "PARTIAL_SUFFIX" in store
+    uploads = (Path("app") / "uploads.py").read_text(encoding="utf-8")
+    assert uploads.count("rmdir(") == 1
 
 
 def test_discard_partial_refuses_real_files(disk):

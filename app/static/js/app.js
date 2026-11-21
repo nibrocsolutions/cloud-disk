@@ -32,7 +32,7 @@ const state = {
     album: null,
     loading: false,
   },
-  upload: { batch: null, items: [], running: false, seq: 1 },
+  upload: { batch: null, items: [], running: false, seq: 1, folders: [], draft: "" },
   viewer: null,
   sheet: null,
 };
@@ -40,6 +40,9 @@ const state = {
 let libraryToken = 0;
 let searchTimer = 0;
 let touchX = null;
+let swallowClick = false;
+const removingFolders = new Set();
+const swipeGesture = { id: null, x: 0, y: 0, dx: 0, row: null, active: false };
 
 function esc(value) {
   return String(value ?? "").replace(/[&<>"']/g, (ch) => ({
@@ -216,6 +219,9 @@ function libraryBody() {
     if (lib.truncated) html += `<p class="muted">Showing the first matches. Try more of the name.</p>`;
   } else {
     html += crumbs(lib.crumbs, "open");
+    if (lib.path === "Uploads") {
+      html += `<p class="muted">Swipe an empty folder to the right to remove it. A folder with anything in it stays.</p>`;
+    }
     if (!lib.path && lib.recent && lib.recent.length) {
       html += `<h2>Recent uploads</h2><div class="recent">${lib.recent.map((item) => `<button type="button" data-act="open" data-path="${esc(item.path)}"><b>${esc(item.label || item.name)}</b><span>Upload folder</span></button>`).join("")}</div>`;
     }
@@ -223,7 +229,7 @@ function libraryBody() {
   if (!lib.entries.length) {
     html += searching
       ? `<div class="empty"><h2>Nothing matches</h2><p>Try a different part of the file name.</p></div>`
-      : `<div class="empty"><h2>Nothing here yet</h2><p>Upload photos from the Upload tab. They land in a new folder for that day and time.</p></div>`;
+      : `<div class="empty"><h2>Nothing here yet</h2><p>Upload photos from the Upload tab. Choose a folder under Uploads, or start one named with the date and time.</p></div>`;
     return html;
   }
   html += entriesHtml(lib.entries, searching ? "search" : "library");
@@ -246,16 +252,28 @@ function entriesHtml(entries, mode) {
   return html;
 }
 
+function canRemoveEmpty(entry, mode) {
+  if (!entry || !entry.empty || entry.kind !== "folder") return false;
+  if (mode === "search" || mode === "album") return false;
+  const parent = mode === "organize" ? state.organize.path : mode === "upload" ? "Uploads" : state.library.path;
+  return parent === "Uploads" && entry.path === `Uploads/${entry.name}`;
+}
+
+function swipeWrap(entry, inner) {
+  return `<div class="swipe" data-path="${esc(entry.path)}"><button type="button" class="swipe-delete" data-act="remove-empty" data-path="${esc(entry.path)}">Delete</button><div class="swipe-face">${inner}</div></div>`;
+}
+
 function folderRow(entry, mode) {
   const selected = state.organize.selected.includes(entry.path);
-  const detail = mode === "search" ? entry.path : "Folder";
-  if (mode === "organize") {
-    return `<div class="row${selected ? " on" : ""}">
+  const removable = canRemoveEmpty(entry, mode);
+  const detail = mode === "search" ? entry.path : removable ? "Empty · swipe right to remove" : "Folder";
+  const row = mode === "organize"
+    ? `<div class="row${selected ? " on" : ""}">
       <button type="button" class="check${selected ? " on" : ""}" data-act="select" data-path="${esc(entry.path)}" aria-label="Select ${esc(entry.name)}"></button>
-      <button type="button" class="grow" data-act="org-open" data-path="${esc(entry.path)}"><b>${esc(entry.name)}</b><small>Folder</small></button>
-    </div>`;
-  }
-  return `<button type="button" class="row" data-act="open" data-path="${esc(entry.path)}"><span class="mark" aria-hidden="true">▣</span><span class="grow"><b>${esc(entry.name)}</b><small>${esc(detail)}</small></span></button>`;
+      <button type="button" class="grow" data-act="org-open" data-path="${esc(entry.path)}"><b>${esc(entry.name)}</b><small>${esc(detail)}</small></button>
+    </div>`
+    : `<button type="button" class="row" data-act="open" data-path="${esc(entry.path)}"><span class="mark" aria-hidden="true">▣</span><span class="grow"><b>${esc(entry.name)}</b><small>${esc(detail)}</small></span></button>`;
+  return removable ? swipeWrap(entry, row) : row;
 }
 
 function fileRow(entry, mode) {
@@ -281,22 +299,42 @@ function shot(entry, mode) {
   </button>`;
 }
 
+function uploadChoices() {
+  const upload = state.upload;
+  const chosen = upload.batch;
+  const rows = [`<button type="button" class="choice${!chosen ? " on" : ""}" data-act="use-dated"><b>New folder</b><small>Named with the date and time when you save</small></button>`];
+  for (const folder of upload.folders || []) {
+    const on = chosen && chosen.id === folder.id ? " on" : "";
+    const detail = folder.empty ? "Empty · swipe right to remove" : "Folder under Uploads";
+    const inner = `<button type="button" class="choice${on}" data-act="use-folder" data-id="${esc(folder.id)}"><b>${esc(folder.label || folder.name)}</b><small>${esc(detail)}</small></button>`;
+    rows.push(folder.empty ? swipeWrap(folder, inner) : inner);
+  }
+  return rows.join("");
+}
+
 function uploadScreen() {
   const upload = state.upload;
   const ready = state.status && state.status.ready && state.status.writable;
   const count = upload.items.length;
   const pending = upload.items.some((item) => item.status !== "saved");
+  const where = upload.batch ? upload.batch.folder : "a new folder named with the date and time";
   return `<header class="top"><div class="brand"><span class="led"></span> Cloud Disk</div></header>
     <h1>Upload</h1>
-    <p class="lede">Each save starts a folder named with today's date and time. Photos already on the drive stay as they are. This app can't delete them.</p>
+    <p class="lede">Save into a folder under Uploads. Photos already on the drive stay where they are.</p>
     ${banners()}
-    ${upload.batch ? `<div class="card"><b>${esc(upload.batch.label)}</b><p class="muted">${esc(upload.batch.folder)}</p></div>` : ""}
+    <h2>Save into</h2>
+    <div class="rows">${uploadChoices()}</div>
+    <div class="composer">
+      <input id="upload-folder-name" value="${esc(upload.draft || "")}" placeholder="New folder name" maxlength="80" autocomplete="off" ${upload.running ? "disabled" : ""}>
+      <button type="button" class="secondary" data-act="create-upload-folder" ${ready && !upload.running ? "" : "disabled"}>Create</button>
+    </div>
+    <p class="muted">Creates the folder under Uploads. Swipe an empty one to the right to remove it.</p>
+    <p class="muted">Saving into ${esc(where)}.</p>
     <div class="stack">
       <button type="button" class="primary" data-act="pick" data-which="pick-photos" ${ready && !upload.running ? "" : "disabled"}>Photos & videos</button>
       <button type="button" class="secondary" data-act="pick" data-which="pick-any" ${ready && !upload.running ? "" : "disabled"}>Original files</button>
       <button type="button" class="secondary" data-act="save" ${ready && count && pending && !upload.running ? "" : "disabled"}>Save to the drive</button>
       ${upload.batch ? `<button type="button" class="quiet" data-act="open-batch">Open this folder</button>` : ""}
-      ${upload.batch && !upload.running ? `<button type="button" class="quiet" data-act="new-batch">Start a new folder</button>` : ""}
     </div>
     <input id="pick-photos" class="file-input" type="file" multiple accept="image/*,video/*,.heic,.heif,.jpg,.jpeg,.png,.gif,.webp,.mov,.mp4,.m4v">
     <input id="pick-any" class="file-input" type="file" multiple>
@@ -343,7 +381,7 @@ function organizeScreen() {
   const albumOn = org.mode !== "drive" ? "on" : "";
   return `<header class="top"><div class="brand"><span class="led"></span> Cloud Disk</div></header>
     <h1>Organize</h1>
-    <p class="lede">Move, copy, and rename. Files stay on the drive. Nothing here can delete them.</p>
+    <p class="lede">Move, copy, and rename. Files stay on the drive.</p>
     ${banners()}
     <div class="seg">
       <button type="button" class="${driveOn}" data-act="org-mode" data-mode="drive">On the drive</button>
@@ -358,6 +396,7 @@ function organizeDrive() {
   let html = `<div class="inline"><button type="button" class="secondary" data-act="new-folder">New folder</button>
     <button type="button" class="quiet" data-act="select-files">Select files</button></div>`;
   html += crumbs(org.crumbs, "org-open");
+  if (org.path === "Uploads") html += `<p class="muted">Swipe an empty folder to the right to remove it. A folder with anything in it stays.</p>`;
   if (org.loading && !org.entries.length) return `${html}<p class="muted">Looking through the drive…</p>`;
   if (!org.entries.length) html += `<div class="empty"><h2>This folder is empty</h2><p>New folders start here. Uploads arrive under Uploads.</p></div>`;
   else html += entriesHtml(org.entries, "organize");
@@ -618,7 +657,13 @@ function setTab(tab) {
   render();
   if (tab === "library") loadLibrary();
   else if (tab === "organize") loadOrganize();
-  else refreshStatus().then(render);
+  else {
+    refreshStatus().then(render);
+    loadUploadFolders().catch((err) => {
+      state.error = err.message;
+      render();
+    });
+  }
 }
 
 function applyHash() {
@@ -729,7 +774,12 @@ async function runUpload() {
   } finally {
     state.upload.running = false;
     try { await lock?.release(); } catch { /* ignore */ }
-    render();
+    try {
+      await loadUploadFolders();
+    } catch (err) {
+      state.error = state.error || err.message;
+      render();
+    }
   }
 }
 
@@ -807,6 +857,26 @@ async function onClick(event) {
     } else if (act === "save") {
       await runUpload();
       return;
+    } else if (act === "use-dated") {
+      if (state.upload.running) return;
+      state.upload.batch = null;
+    } else if (act === "use-folder") {
+      if (state.upload.running) return;
+      const folder = (state.upload.folders || []).find((item) => item.id === node.dataset.id);
+      if (folder) state.upload.batch = folder;
+    } else if (act === "create-upload-folder") {
+      if (state.upload.running) return;
+      const name = document.getElementById("upload-folder-name").value;
+      state.upload.draft = name;
+      const made = await api("/api/uploads/folders", { method: "POST", body: { name } });
+      state.upload.batch = made;
+      state.upload.draft = "";
+      state.notice = `Created ${made.folder}.`;
+      await loadUploadFolders();
+      return;
+    } else if (act === "remove-empty") {
+      await removeEmptyFolder(node.dataset.path);
+      return;
     } else if (act === "open-batch") {
       if (!state.upload.batch) return;
       state.tab = "library";
@@ -816,14 +886,6 @@ async function onClick(event) {
       history.replaceState(null, "", "#library");
       await loadLibrary();
       return;
-    } else if (act === "new-batch") {
-      state.sheet = {
-        type: "confirm",
-        title: "Start a new folder?",
-        body: "Photos already saved stay in the current folder. The next save gets a new date and time.",
-        yes: "Start a new folder",
-        confirm: "new-batch",
-      };
     } else if (act === "org-mode") {
       state.organize.mode = node.dataset.mode === "albums" ? "albums" : "drive";
       state.organize.album = null;
@@ -939,11 +1001,7 @@ async function onClick(event) {
     } else if (act === "confirm-yes") {
       const kind = state.sheet.confirm;
       state.sheet = null;
-      if (kind === "new-batch") {
-        state.upload.batch = null;
-        state.upload.items = [];
-        state.notice = "The next save starts a new folder.";
-      } else if (kind === "remove-album") {
+      if (kind === "remove-album") {
         await api(`/api/albums/${state.organize.album.id}/remove`, { method: "POST", body: {} });
         state.organize.mode = "albums";
         state.organize.album = null;
@@ -960,6 +1018,44 @@ async function onClick(event) {
   }
 }
 
+async function loadUploadFolders() {
+  const data = await api("/api/uploads/batches");
+  state.upload.folders = data.batches || [];
+  if (state.upload.batch) {
+    state.upload.batch = state.upload.folders.find((folder) => folder.id === state.upload.batch.id) || null;
+  }
+  if (state.tab === "upload") render();
+}
+
+async function removeEmptyFolder(path) {
+  if (!path || removingFolders.has(path)) return;
+  removingFolders.add(path);
+  try {
+    await api("/api/uploads/folders/remove", { method: "POST", body: { path } });
+    if (state.upload.batch && (state.upload.batch.folder === path || state.upload.batch.path === path)) {
+      state.upload.batch = null;
+    }
+    state.notice = "Removed the empty folder.";
+    state.error = "";
+    if (state.tab === "upload") await loadUploadFolders();
+    else if (state.tab === "organize") await loadOrganize();
+    else await loadLibrary();
+  } catch (err) {
+    state.error = err.message;
+    render();
+  } finally {
+    removingFolders.delete(path);
+  }
+}
+
+function closeSwipe(row) {
+  if (!row) return;
+  row.dataset.open = "";
+  row.classList.remove("dragging");
+  const face = row.querySelector(".swipe-face");
+  if (face) face.style.transform = "";
+}
+
 function fileSelection() {
   return selectedEntries().filter((entry) => entry.kind !== "folder").map((entry) => entry.path);
 }
@@ -970,7 +1066,15 @@ document.getElementById("nav").addEventListener("click", (event) => {
   setTab(button.dataset.tab);
 });
 
-document.getElementById("app").addEventListener("click", onClick);
+document.getElementById("app").addEventListener("click", (event) => {
+  if (!swallowClick) {
+    onClick(event);
+    return;
+  }
+  swallowClick = false;
+  event.preventDefault();
+  event.stopPropagation();
+});
 document.getElementById("app").addEventListener("change", async (event) => {
   const target = event.target;
   if (target.id === "pick-photos" || target.id === "pick-any") {
@@ -995,6 +1099,10 @@ document.getElementById("app").addEventListener("change", async (event) => {
   }
 });
 document.getElementById("app").addEventListener("input", (event) => {
+  if (event.target.id === "upload-folder-name") {
+    state.upload.draft = event.target.value;
+    return;
+  }
   if (event.target.id !== "q") return;
   state.library.q = event.target.value;
   clearTimeout(searchTimer);
@@ -1021,6 +1129,75 @@ document.getElementById("app").addEventListener("submit", async (event) => {
 document.getElementById("app").addEventListener("error", (event) => {
   if (event.target && event.target.tagName === "IMG") event.target.classList.add("broken");
 }, true);
+
+const appEl = document.getElementById("app");
+appEl.addEventListener("pointerdown", (event) => {
+  if (event.button !== 0) return;
+  const row = event.target.closest(".swipe");
+  if (!row) return;
+  swipeGesture.id = event.pointerId;
+  swipeGesture.x = event.clientX;
+  swipeGesture.y = event.clientY;
+  swipeGesture.dx = 0;
+  swipeGesture.row = row;
+  swipeGesture.active = false;
+});
+appEl.addEventListener("pointermove", (event) => {
+  if (event.pointerId !== swipeGesture.id || !swipeGesture.row) return;
+  const dx = event.clientX - swipeGesture.x;
+  const dy = event.clientY - swipeGesture.y;
+  if (!swipeGesture.active) {
+    if (Math.abs(dx) < 12 && Math.abs(dy) < 12) return;
+    if (Math.abs(dy) > Math.abs(dx)) {
+      swipeGesture.row = null;
+      return;
+    }
+    swipeGesture.active = true;
+    swipeGesture.row.classList.add("dragging");
+  }
+  const next = Math.max(0, Math.min(dx, 128));
+  swipeGesture.dx = next;
+  const face = swipeGesture.row.querySelector(".swipe-face");
+  if (face) face.style.transform = `translateX(${next}px)`;
+  if (event.cancelable) event.preventDefault();
+}, { passive: false });
+appEl.addEventListener("pointerup", (event) => {
+  if (event.pointerId !== swipeGesture.id) return;
+  const row = swipeGesture.row;
+  const dx = swipeGesture.dx;
+  const active = swipeGesture.active;
+  swipeGesture.row = null;
+  swipeGesture.id = null;
+  swipeGesture.active = false;
+  if (!row) return;
+  if (!active) {
+    if (row.dataset.open === "1" && !event.target.closest(".swipe-delete")) {
+      closeSwipe(row);
+      swallowClick = true;
+    }
+    return;
+  }
+  swallowClick = true;
+  row.classList.remove("dragging");
+  const face = row.querySelector(".swipe-face");
+  if (dx >= 100) {
+    closeSwipe(row);
+    removeEmptyFolder(row.dataset.path);
+    return;
+  }
+  if (dx >= 48 && face) {
+    row.dataset.open = "1";
+    face.style.transform = "translateX(104px)";
+    return;
+  }
+  closeSwipe(row);
+});
+appEl.addEventListener("pointercancel", () => {
+  closeSwipe(swipeGesture.row);
+  swipeGesture.row = null;
+  swipeGesture.id = null;
+  swipeGesture.active = false;
+});
 
 document.addEventListener("keydown", (event) => {
   if (!state.viewer) return;
@@ -1061,7 +1238,7 @@ api("/api/session").then(async (session) => {
   }
   await refreshStatus();
   if (state.tab === "organize") await loadOrganize();
-  else if (state.tab === "upload") render();
+  else if (state.tab === "upload") await loadUploadFolders();
   else await loadLibrary();
 }).catch((err) => {
   state.error = err.message;

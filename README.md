@@ -107,8 +107,8 @@ If writes fail with a permission error, the mount owner and the container user d
 - Search by file name
 - Open a photo. HEIC pictures from an iPhone are shown as a preview. The file on the drive is left as it is
 - Play a video the phone can play, and open anything else
-- Upload photos and videos. Each save creates `Uploads/YYYY-MM-DD_HH-MM-SS` using the Pi's `APP_TZ` (Eastern Time by default)
-- Add another group of photos to the same folder, or start a new folder for the next batch
+- Upload photos and videos into a folder under `Uploads`. Pick one that is already there, create one with your own name, or leave the choice on a new folder named `Uploads/YYYY-MM-DD_HH-MM-SS` (Eastern Time by default)
+- Add another group of photos to the same folder
 - Create folders, rename, move, and copy
 - Keep albums. An album is a list stored on the Pi. Adding or removing a photo there does not change the file
 
@@ -116,7 +116,9 @@ A name that already exists is kept. The new file is saved beside it as `name (2)
 
 ## What you cannot do
 
-There is no delete. There is no trash. A finished file is never removed by this app. An upload that stops halfway is discarded so a half-written file is not left behind. That cleanup only applies to the app's own unfinished files, the ones whose names end in `.cloud-disk-part`.
+A finished file is never removed. There is no trash. An upload that stops halfway is discarded so a half-written file is not left behind. That cleanup only applies to the app's own unfinished files, the ones whose names end in `.cloud-disk-part`.
+
+The one folder you can remove is an empty folder directly under `Uploads`. Swipe it to the right. If it still has a file, a hidden file, or a folder inside it, it stays. Folders anywhere else stay too.
 
 ## Uploading from an iPhone
 
@@ -156,7 +158,10 @@ pytest
 | GET | `/api/search` | File names |
 | GET | `/api/file` | The original file |
 | GET | `/api/media` | A JPEG preview |
+| GET | `/api/uploads/batches` | Folders directly under `Uploads` |
 | POST | `/api/uploads/batches` | Start `Uploads/date_time` |
+| POST | `/api/uploads/folders` | Create a named folder under `Uploads` |
+| POST | `/api/uploads/folders/remove` | Remove that folder only when it is empty |
 | POST | `/api/uploads/batches/{id}/files` | Save one file into that folder |
 | POST | `/api/folders` | Create a folder |
 | POST | `/api/rename` | Rename a file or folder |
