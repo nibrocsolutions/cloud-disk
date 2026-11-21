@@ -1,6 +1,7 @@
 import io
 import json
 from datetime import datetime
+from urllib.parse import quote
 from zoneinfo import ZoneInfo
 
 from PIL import Image
@@ -61,6 +62,74 @@ def test_upload_name_cannot_escape_the_folder(client, disk):
     assert response.status_code == 200
     assert (disk / "Uploads" / batch["id"] / "outside.jpg").read_bytes() == b"inside"
     assert not (disk / "outside.jpg").exists()
+
+
+def test_named_upload_folder_can_be_chosen_and_only_empty_ones_go_away(client, disk):
+    made = client.post("/api/uploads/folders", json={"name": "Beach Day"})
+    assert made.status_code == 200
+    folder = made.json()
+    assert folder["folder"] == "Uploads/Beach Day"
+    assert folder["empty"] is True
+    saved = _upload(client, quote(folder["id"]), "pic.jpg", b"pic")
+    assert saved.status_code == 200
+    assert (disk / "Uploads" / "Beach Day" / "pic.jpg").read_bytes() == b"pic"
+    blocked = client.post("/api/uploads/folders/remove", json={"path": "Uploads/Beach Day"})
+    assert blocked.status_code == 409
+    assert (disk / "Uploads" / "Beach Day" / "pic.jpg").read_bytes() == b"pic"
+
+    empty = client.post("/api/uploads/folders", json={"name": "Later"})
+    assert empty.status_code == 200
+    listed = {item["name"]: item for item in client.get("/api/uploads/batches").json()["batches"]}
+    assert listed["Beach Day"]["empty"] is False
+    assert listed["Later"]["empty"] is True
+    browsed = {entry["name"]: entry for entry in client.get("/api/browse", params={"path": "Uploads"}).json()["entries"]}
+    assert browsed["Later"]["empty"] is True
+    assert browsed["Beach Day"]["empty"] is False
+
+    gone = client.post("/api/uploads/folders/remove", json={"path": "Uploads/Later"})
+    assert gone.status_code == 200
+    assert gone.json()["removed"] == "Uploads/Later"
+    assert not (disk / "Uploads" / "Later").exists()
+    assert (disk / "Uploads" / "Beach Day" / "pic.jpg").read_bytes() == b"pic"
+
+    (disk / "Keep").mkdir()
+    (disk / "Keep" / "stay.jpg").write_bytes(b"stay")
+    outside = client.post("/api/uploads/folders/remove", json={"path": "Keep"})
+    assert outside.status_code == 404
+    assert (disk / "Keep" / "stay.jpg").read_bytes() == b"stay"
+    root = client.post("/api/uploads/folders/remove", json={"path": "Uploads"})
+    assert root.status_code == 400
+    assert (disk / "Uploads").is_dir()
+
+    nested_dir = disk / "Uploads" / "Beach Day" / "inner"
+    nested_dir.mkdir()
+    nested = client.post("/api/uploads/folders/remove", json={"path": "Uploads/Beach Day/inner"})
+    assert nested.status_code == 400
+    assert nested_dir.is_dir()
+
+    hidden = disk / "Uploads" / "Quiet"
+    hidden.mkdir()
+    (hidden / ".keep").write_text("x")
+    refused = client.post("/api/uploads/folders/remove", json={"path": "Uploads/Quiet"})
+    assert refused.status_code == 409
+    assert (hidden / ".keep").read_text() == "x"
+
+    link = disk / "Uploads" / "linked"
+    link.symlink_to(disk / "Keep", target_is_directory=True)
+    linked = client.post("/api/uploads/folders/remove", json={"path": "Uploads/linked"})
+    assert linked.status_code == 404
+    assert link.is_symlink()
+    assert (disk / "Keep" / "stay.jpg").read_bytes() == b"stay"
+
+    (disk / "Uploads" / "notes.txt").write_text("keep")
+    as_file = client.post("/api/uploads/folders/remove", json={"path": "Uploads/notes.txt"})
+    assert as_file.status_code == 404
+    assert (disk / "Uploads" / "notes.txt").read_text() == "keep"
+    slash = client.post("/api/uploads/folders", json={"name": "../Nope"})
+    assert slash.status_code == 400
+    assert not (disk / "Nope").exists()
+    again = client.post("/api/uploads/folders", json={"name": "Beach Day"})
+    assert again.status_code == 409
 
 
 def test_two_batches_get_different_folders(client, disk):

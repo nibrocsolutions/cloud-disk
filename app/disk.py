@@ -6,7 +6,7 @@ from app.config import settings
 from app.errors import DiskError
 from app.files import describe, kind_for
 from app.paths import disk_root, normalize_rel, parent_rel, resolve_dir, visible_name
-from app.uploads import BATCH_RE, batch_label
+from app.uploads import batch_label, folder_is_empty
 
 
 def disk_status() -> dict:
@@ -52,7 +52,10 @@ def _collect(folder: Path, rel: str) -> list[dict]:
                 continue
             child_rel = f"{rel}/{entry.name}" if rel else entry.name
             if entry.is_dir(follow_symlinks=False):
-                entries.append(describe(Path(entry.path), child_rel))
+                info = describe(Path(entry.path), child_rel)
+                if rel == "Uploads":
+                    info["empty"] = folder_is_empty(Path(entry.path))
+                entries.append(info)
             elif entry.is_file(follow_symlinks=False):
                 entries.append(describe(Path(entry.path), child_rel))
         except OSError:
@@ -105,14 +108,21 @@ def recent_uploads(limit: int = 6) -> list[dict]:
     found = []
     try:
         for entry in os.scandir(folder):
-            if entry.is_symlink() or not entry.is_dir(follow_symlinks=False):
+            if entry.name.startswith(".") or entry.is_symlink() or not entry.is_dir(follow_symlinks=False):
                 continue
-            if not BATCH_RE.fullmatch(entry.name):
+            if not visible_name(entry.name):
                 continue
             found.append(entry)
     except OSError as exc:
         raise DiskError("The drive stopped responding. Check the USB cable.", 503) from exc
-    found.sort(key=lambda entry: entry.name, reverse=True)
+
+    def newest(entry):
+        try:
+            return entry.stat(follow_symlinks=False).st_mtime
+        except OSError:
+            return 0
+
+    found.sort(key=newest, reverse=True)
     items = []
     for entry in found[:limit]:
         rel = f"Uploads/{entry.name}"

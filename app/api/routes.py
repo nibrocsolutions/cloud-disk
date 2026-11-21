@@ -25,7 +25,7 @@ from app.files import INLINE_TYPES, media_type_for
 from app.organize import copy_entries, make_folder, move_entries, rename_entry
 from app.paths import resolve_inside
 from app.thumbs import ensure_jpeg
-from app.uploads import create_batch, list_batches, save_upload
+from app.uploads import create_batch, create_named_folder, list_batches, remove_empty_upload_folder, save_upload
 
 public = APIRouter(prefix="/api")
 router = APIRouter(prefix="/api", dependencies=[Depends(require_access)])
@@ -38,6 +38,11 @@ class UnlockIn(BaseModel):
 class FolderIn(BaseModel):
     parent: str = ""
     name: str = Field(max_length=180)
+
+
+class UploadFolderIn(BaseModel):
+    name: str = Field(default="", max_length=180)
+    path: str = Field(default="", max_length=400)
 
 
 class RenameIn(BaseModel):
@@ -173,6 +178,16 @@ def batches() -> dict:
 @router.post("/uploads/batches")
 def open_batch() -> dict:
     return create_batch()
+
+
+@router.post("/uploads/folders")
+def new_upload_folder(body: UploadFolderIn) -> dict:
+    return create_named_folder(body.name)
+
+
+@router.post("/uploads/folders/remove")
+def remove_upload_folder(body: UploadFolderIn) -> dict:
+    return remove_empty_upload_folder(body.path or body.name)
 
 
 @router.post("/uploads/batches/{batch_id}/files")
