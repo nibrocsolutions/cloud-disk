@@ -4,7 +4,7 @@ services:
     image: cloud-disk:latest
     container_name: cloud-disk
     ports:
-      - "8098:8098"
+      - "8050:8050"
     volumes:
       - cloud-disk-data:/data
       # Mount the portable drive on the Pi first, then point this at that folder.
@@ -12,7 +12,7 @@ services:
     environment:
       DATA_DIR: /data
       DISK_ROOT: /disk
-      PORT: "8098"
+      PORT: "8050"
       TZ: America/New_York
       APP_TZ: America/New_York
       DISK_LABEL: Drive

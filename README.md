@@ -6,7 +6,7 @@ Finished files stay on the drive. The app has no way to delete them.
 
 It is the same kind of app as Meow and Dolf: one Python container, SQLite for the album list, and a page served by that container. The page itself is its own layout.
 
-Cloud Disk listens on **port 8098**. The other apps already use 8000 (government-tracker), 8081 (math-facts and trip-planner), 8083 (health-tracker), 8085 (wifi-monitor), 8088 (kinney-aviation), 8092 (dolf-tracker), 8094 (meow), and 8096 (castle).
+Cloud Disk listens on **port 8050**. The other apps already use 8000 (government-tracker), 8081 (math-facts and trip-planner), 8083 (health-tracker), 8085 (wifi-monitor), 8088 (kinney-aviation), 8092 (dolf-tracker), 8094 (meow), and 8096 (castle).
 
 ## Quick start (Raspberry Pi 4, 64-bit Pi OS Lite)
 
@@ -57,7 +57,7 @@ docker compose up -d --build
 
 `.env` sets `DISK_MOUNT=/mnt/seagate`. Change it if you mounted the drive somewhere else.
 
-On the phone, join the same Wi-Fi as the Pi and open `http://<pi-ip>:8098`.
+On the phone, join the same Wi-Fi as the Pi and open `http://<pi-ip>:8050`.
 
 Add it to the home screen (Safari: Share → Add to Home Screen) and it opens like an app.
 
@@ -105,10 +105,10 @@ python3 -m venv .venv
 source .venv/bin/activate
 pip install -r requirements-dev.txt
 mkdir -p data disk
-DATA_DIR=./data DISK_ROOT=./disk EXPECT_MIN_BYTES=0 uvicorn app.main:app --reload --host 0.0.0.0 --port 8098
+DATA_DIR=./data DISK_ROOT=./disk EXPECT_MIN_BYTES=0 uvicorn app.main:app --reload --host 0.0.0.0 --port 8050
 ```
 
-Put a few photos in `disk/` and open `http://127.0.0.1:8098`.
+Put a few photos in `disk/` and open `http://127.0.0.1:8050`.
 
 Tests:
 
@@ -150,7 +150,7 @@ There is no delete method.
 | `DISK_ROOT` | `./disk` locally, `/disk` in Docker | The portable drive inside the container |
 | `DISK_MOUNT` | `/mnt/seagate` | Host path published as `/disk` |
 | `DISK_LABEL` | `Drive` | Name of the top folder in the page |
-| `PORT` | `8098` | HTTP port |
+| `PORT` | `8050` | HTTP port |
 | `APP_TZ` | `America/New_York` | Date and time used in upload folder names |
 | `TZ` | `America/New_York` in Docker | Clock inside the container |
 | `ACCESS_CODE` | empty | Optional code required before the drive is shown |
@@ -161,7 +161,7 @@ Set `ACCESS_CODE` in `docker-compose.yml` or `.env` if the Pi is reachable beyon
 
 ## Notes
 
-- Keep it on your home network. Do not forward port 8098 to the internet. The phone has to reach the Pi. Away from home, use a VPN you already trust.
+- Keep it on your home network. Do not forward port 8050 to the internet. The phone has to reach the Pi. Away from home, use a VPN you already trust.
 - Previews are cached on the Pi, under the Docker volume. The portable drive only receives the files you upload and the folders you create.
 - The page does not load fonts or scripts from the internet. After the container is built, the page works with the Pi offline.
 - The image is `python:3.12-slim`, so it runs on 64-bit Pi OS and on a normal PC.

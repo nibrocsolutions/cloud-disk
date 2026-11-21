@@ -12,7 +12,7 @@ class Settings(BaseSettings):
     disk_root: Path = Path("./disk")
     disk_label: str = "Drive"
     host: str = "0.0.0.0"
-    port: int = 8098
+    port: int = 8050
     app_tz: str = "America/New_York"
     access_code: str = ""
     # Warn when the mounted folder is smaller than a portable drive.

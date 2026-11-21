@@ -5,7 +5,7 @@ ENV PYTHONDONTWRITEBYTECODE=1 \
     PYTHONUNBUFFERED=1 \
     DATA_DIR=/data \
     DISK_ROOT=/disk \
-    PORT=8098 \
+    PORT=8050 \
     TZ=America/New_York \
     APP_TZ=America/New_York
 
@@ -27,7 +27,7 @@ RUN mkdir -p /data /disk \
 USER appuser
 
 VOLUME ["/data", "/disk"]
-EXPOSE 8098
+EXPOSE 8050
 
 HEALTHCHECK --interval=30s --timeout=5s --start-period=60s --retries=3 \
   CMD curl -fsS "http://127.0.0.1:${PORT}/api/health" || exit 1
