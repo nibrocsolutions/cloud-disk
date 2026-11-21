@@ -69,7 +69,19 @@ cp .env.example .env
 docker compose up -d --build
 ```
 
-`.env` sets `DISK_MOUNT=/mnt/seagate`. Change it if you mounted the drive somewhere else.
+If that says `permission denied while trying to connect to the docker API at unix:///var/run/docker.sock`, the Pi user is not allowed to use Docker yet. Run it once with sudo:
+
+```bash
+sudo docker compose up -d --build
+```
+
+To stop needing sudo, add your user to the docker group, then log out of SSH and back in:
+
+```bash
+sudo usermod -aG docker $USER
+```
+
+`groups` should then include `docker`. `.env` sets `DISK_MOUNT=/mnt/seagate`. Change it if you mounted the drive somewhere else.
 
 On the phone, join the same Wi-Fi as the Pi and open `http://<pi-ip>:8050`.
 
@@ -82,6 +94,8 @@ docker compose logs -f
 git pull && docker compose up -d --build
 docker compose down
 ```
+
+Put `sudo` in front of `docker` until `groups` includes `docker`.
 
 `docker compose down` keeps the `cloud-disk-data` volume (the album list and preview cache). It does not change the portable drive. Add `-v` only when you mean to erase the album list. That still does not delete files on the drive.
 
